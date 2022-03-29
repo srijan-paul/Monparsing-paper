@@ -2,8 +2,11 @@
 -- Haskell implementation of the monadic parser combination strategy
 -- presented in the paper above.
 
+import Control.Applicative (Alternative)
 import Control.Monad (MonadPlus (..))
+import qualified Data.Bifunctor as Bifunctor (first)
 import Data.Char (isDigit, isLower, isUpper, ord)
+import GHC.Base (Alternative (empty), (<|>))
 
 -- Empty list -> Parse error
 -- [(x, xs)] -> x is the parse tree and `xs` is the rest of the unparsed string.
@@ -15,14 +18,33 @@ newtype Parser a = Parser {parse :: ParseFun a}
 result :: a -> Parser a
 result v = Parser $ \inp -> [(v, inp)]
 
+zero = Parser $ const []
+
+instance Functor Parser where
+  fmap f p = Parser (fmap (Bifunctor.first f) . parse p)
+
+instance Applicative Parser where
+  pure = result
+  p <*> q = undefined
+
 instance Monad Parser where
   p >>= f = Parser $ \inp ->
     concat [parse (f v) inp' | (v, inp') <- parse p inp]
   return = result
 
-instance MonadPlus Parser where
+instance Alternative Parser where
   -- A parser that always fails by returning an empty list
-  mzero = Parser $ const []
+  empty = zero
+  -- Applies two parsers `p` and `q` to the input string.
+  -- If `p` parses the string into something successful, its parse result is returned.
+  -- If `p` fails but `q` parses successfully, the parse result of `q` is returned.
+  -- If both fail, an empty list is returned.
+  p <|> q = Parser $ \inp -> case parse (p `mplus` q) inp of
+    [] -> []
+    (x : xs) -> [x]
+
+instance MonadPlus Parser where
+  mzero = empty
   p `mplus` q = Parser $ \inp -> parse p inp ++ parse q inp
 
 -- Consumes a single character from the input string
@@ -79,14 +101,7 @@ string (x : xs) =
     >> string xs
     >> result (x : xs)
 
--- Applies two parsers `p` and `q` to the input string.
--- If `p` parses the string into something successful, its parse result is returned.
--- If `p` fails but `q` parses successfully, the parse result of `q` is returned.
--- If both fail, an empty list is returned.
-(+++) :: Parser a -> Parser a -> Parser a
-p +++ q = Parser $ \inp -> case parse (p `mplus` q) inp of
-  [] -> []
-  (x : xs) -> [x]
+
 
 -- Applies a parser `p` as many times as possible to the input string.
 -- e.g - `many digit "123ABC"` returns [("123", "ABC")]
@@ -96,7 +111,7 @@ many p =
       many p >>= \xs -> -- Then recursive apply `p` many times.
         result (x : xs) -- Finally, combine the results
   )
-    +++ result [] -- In case `p` fails to apply either in the initial call, or in one of the
+    <|> result [] -- In case `p` fails to apply either in the initial call, or in one of the
     -- recursive calls to itself, we return an empty list instead.
 
 -- Applies
