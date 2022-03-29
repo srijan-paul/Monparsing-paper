@@ -35,6 +35,7 @@ instance Monad Parser where
 instance Alternative Parser where
   -- A parser that always fails by returning an empty list
   empty = zero
+
   -- Applies two parsers `p` and `q` to the input string.
   -- If `p` parses the string into something successful, its parse result is returned.
   -- If `p` fails but `q` parses successfully, the parse result of `q` is returned.
@@ -101,18 +102,24 @@ string (x : xs) =
     >> string xs
     >> result (x : xs)
 
-
-
 -- Applies a parser `p` as many times as possible to the input string.
 -- e.g - `many digit "123ABC"` returns [("123", "ABC")]
 many :: Parser a -> Parser [a]
 many p =
-  ( p >>= \x -> -- Start by applying p once
-      many p >>= \xs -> -- Then recursive apply `p` many times.
-        result (x : xs) -- Finally, combine the results
+  ( do
+      x <- p -- apply `p` once
+      xs <- many p -- recursively apply `p` as many times as possible
+      return (x : xs) -- Combine the results returned by each parser
   )
-    <|> result [] -- In case `p` fails to apply either in the initial call, or in one of the
+    <|> result [] -- In case `p` fails either in the initial call, or in one of the
     -- recursive calls to itself, we return an empty list instead.
+
+-- Alternatvely, without `do` notation:
+-- ( p >>= \x ->
+--     many p >>= \xs ->
+--       result (x : xs)
+-- )
+--   <|> result []
 
 -- Applies
 word :: Parser String
@@ -120,10 +127,15 @@ word = many letter
 
 -- Consumes a pattern that matches `[a-zA-Z][a-zA-Z0-9]*`
 ident :: Parser String
-ident =
-  letter >>= \x -> -- one letter, followed by...
-    many alphanum >>= \xs -> -- zero or more alphanumeric chars
-      result (x : xs)
+ident = do
+  x <- letter -- one letter, followed by...
+  xs <- many alphanum -- zero or more alphanumeric chars
+  return (x : xs)
+
+-- Alternatively:
+-- letter >>= \x ->
+--   many alphanum >>= \xs ->
+--     result (x : xs)
 
 -- Not in the paper, just something I was playing around with.
 -- Applies `p` first, then `q`, and returns the results in a 2-tuple.
@@ -152,7 +164,12 @@ nat =
 -- Then applies `p` and `seq` alternatively, returning a list that
 -- contains the parse results of `p`, separated by the parse results of `sep`.
 sepby1 :: Parser a -> Parser b -> Parser [a]
-p `sepby1` sep =
-  p >>= \x -> -- first, apply `p`
-    many (sep >>= const p) -- To the rest of the string, apply `many (sep >>= const p)`
-      >>= \xs -> result (x : xs) --  Then combine the two results into a list and return it.
+p `sepby1` sep = do
+  x <- p -- first apply `p`
+  xs <- many (sep >>= const p) -- Then, apply a parser that expects `<sep> <parse-input-of-p> many times
+  return (x : xs) -- Finally, merge the results
+
+-- Alternative bind syntaax: 
+-- p >>= \x ->
+--   many (sep >>= const p)
+--     >>= \xs -> result (x : xs)
