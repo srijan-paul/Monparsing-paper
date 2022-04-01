@@ -6,6 +6,7 @@ import Control.Applicative (Alternative)
 import Control.Monad (MonadPlus (..))
 import qualified Data.Bifunctor as Bifunctor (first)
 import Data.Char (isDigit, isLower, isUpper, ord)
+import Data.Functor ((<$>))
 import GHC.Base (Alternative (empty), (<|>))
 
 -- Empty list -> Parse error
@@ -166,10 +167,46 @@ nat =
 sepby1 :: Parser a -> Parser b -> Parser [a]
 p `sepby1` sep = do
   x <- p -- first apply `p`
-  xs <- many (sep >>= const p) -- Then, apply a parser that expects `<sep> <parse-input-of-p> many times
+  xs <- many (sep >>= const p) -- Then, apply a parser that expects '<sep> <parse-input-of-p>' many times
   return (x : xs) -- Finally, merge the results
 
--- Alternative bind syntaax: 
+-- Alternative bind syntaax:
 -- p >>= \x ->
 --   many (sep >>= const p)
 --     >>= \xs -> result (x : xs)
+
+bracket :: Parser a -> Parser b -> Parser c -> Parser b
+bracket open p close = do
+  _ <- open
+  x <- p
+  _ <- close
+  return x
+
+data Exp
+  = Integer Int
+  | BinOp Exp Char Exp
+  | Factor Exp
+  deriving (Show, Eq)
+
+-- Expr -> Factor AddOp Factor
+-- AddOp -> '+' | '-'
+-- Factor -> Int | '(' Expr ')'
+
+expr :: Parser Exp
+expr = do
+  x <- factor
+
+  xs <- many $ do
+    op <- addop
+    y <- factor
+    return (op, y)
+
+  return $ foldl combine x xs
+  where
+    combine l (op, r) = BinOp l op r
+
+addop :: Parser Char
+addop = char '+' <|> char '-'
+
+factor :: Parser Exp
+factor = bracket (char '(') expr (char ')') <|> (Integer <$> nat)
